@@ -101,7 +101,7 @@ def fetch_releases():
 
 
 def search_existing_issue(unique_key):
-    query = f'repo:{REPOSITORY} in:title,in:body "{unique_key}" type:issue'
+    query = f'repo:{REPOSITORY} in:title,body "{unique_key}" is:issue'
     url = "https://api.github.com/search/issues"
     resp = requests.get(url, headers=HEADERS, params={"q": query}, timeout=30)
     resp.raise_for_status()
