@@ -1,8 +1,8 @@
 import os
 import sys
 import requests
-import feedparser
-from datetime import datetime, timezone
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 REPOSITORY = os.environ["GITHUB_REPOSITORY"]
@@ -14,36 +14,66 @@ HEADERS = {
     "User-Agent": "claude-code-watcher",
 }
 
-ANTHROPIC_BLOG_RSS = "https://www.anthropic.com/news/rss.xml"
+WEB_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/145.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+}
+
+NEWSROOM_URL = "https://www.anthropic.com/news"
 RELEASES_API = "https://api.github.com/repos/anthropics/claude-code/releases"
 
 KEYWORDS = [
     "claude code",
     "agentic coding",
-    "anthropic teams use claude code",
+    "coding",
+    "subagents",
+    "hooks",
+    "mcp",
 ]
 
 LABELS = ["claude-code-watch"]
 
-def fetch_blog_entries():
-    feed = feedparser.parse(ANTHROPIC_BLOG_RSS)
+
+def fetch_newsroom_entries():
+    resp = requests.get(NEWSROOM_URL, headers=WEB_HEADERS, timeout=30)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
     items = []
+    seen = set()
 
-    for entry in feed.entries[:20]:
-        title = entry.get("title", "")
-        link = entry.get("link", "")
-        summary = entry.get("summary", "")
-        text = f"{title}\n{summary}".lower()
+    # Newsroom内のリンクを広めに取得
+    for a in soup.select('a[href^="/news/"]'):
+        href = a.get("href", "").strip()
+        if not href or href == "/news":
+            continue
 
-        if any(k in text for k in KEYWORDS):
-            items.append({
-                "source": "anthropic-blog",
-                "title": title,
-                "url": link,
-                "published": entry.get("published", ""),
-                "body": summary,
-                "unique_key": link,
-            })
+        url = urljoin("https://www.anthropic.com", href)
+        title = " ".join(a.get_text(" ", strip=True).split())
+        text = title.lower()
+
+        if url in seen:
+            continue
+        seen.add(url)
+
+        # タイトルが空でもURL末尾で少し判定できるようにする
+        url_text = url.lower()
+        if not any(k in text or k in url_text for k in KEYWORDS):
+            continue
+
+        items.append({
+            "source": "anthropic-news",
+            "title": title or href.split("/")[-1],
+            "url": url,
+            "published": "",
+            "body": "",
+            "unique_key": url,
+        })
+
     return items
 
 
@@ -134,7 +164,7 @@ def main():
         ensure_label(label)
 
     items = []
-    items.extend(fetch_blog_entries())
+    items.extend(fetch_newsroom_entries())
     items.extend(fetch_releases())
 
     created = 0
